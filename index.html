@@ -187,6 +187,34 @@
   .formular .absenden:disabled { opacity: 0.6; cursor: wait; }
   .meldung { margin-top: 14px; font-weight: 700; text-align: center; min-height: 1.2em; }
   .gesperrt { text-align: center; font-weight: 700; padding: 10px; }
+  .klein { font-size: 13px; font-weight: 400 !important; }
+  .regler-box { border: 3px solid var(--tinte); background: var(--feld); padding: 12px 14px 8px; }
+  #recordAnzeige {
+    display: block; text-align: center; font-family: var(--display);
+    font-size: 48px; line-height: 1; color: var(--rot); font-variant-numeric: tabular-nums;
+  }
+  #regler { width: 100%; accent-color: var(--rot); margin: 12px 0 4px; height: 24px; cursor: pointer; }
+  .regler-skala { display: flex; justify-content: space-between; font-size: 12px; }
+
+  .mod-titel { margin: 0 0 10px; font-size: 32px; }
+  #mod input[type="password"] {
+    width: 100%; font-family: var(--mono); font-size: 16px; padding: 10px;
+    border: 3px solid var(--tinte); background: var(--feld); color: var(--tinte);
+  }
+  .mod-kopf { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .mod-zeile {
+    display: grid; grid-template-columns: 70px 1fr; gap: 10px 14px;
+    border-top: 2px dashed var(--tinte); padding: 14px 0;
+  }
+  .mod-zeile img { width: 70px; height: 86px; object-fit: cover; border: 2px solid var(--tinte); }
+  .mod-felder { display: grid; gap: 6px; min-width: 0; }
+  .mod-felder input { font-family: var(--mono); font-size: 14px; padding: 6px; border: 2px solid var(--tinte); background: var(--feld); color: var(--tinte); width: 100%; }
+  .mod-knoepfe { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+  .mod-knoepfe button { font-family: var(--mono); font-size: 13px; padding: 6px 10px; border: 2px solid var(--tinte); cursor: pointer; background: var(--gelb); color: var(--tinte); }
+  .mod-knoepfe button.rot { background: var(--rot); color: var(--weiss); }
+  .mod-knoepfe button.hell { background: var(--weiss); }
+  .mod-link { background: none; border: none; color: var(--papier); font-family: var(--mono); font-size: 13px; text-decoration: underline; cursor: pointer; padding: 0; }
+
   footer { text-align: center; padding: 20px 16px; font-size: 13px; background: var(--tinte); color: var(--papier); }
 </style>
 </head>
@@ -224,14 +252,14 @@
     <label for="name">Name <span class="stern">*</span></label>
     <input type="text" id="name" maxlength="30" required>
 
-    <label for="record">Record? <span class="stern">*</span></label>
-    <select id="record" required>
-      <option value="">-- auswählen --</option>
-      <option>0</option><option>1</option><option>2</option><option>3</option>
-      <option>4</option><option>5</option><option>6</option><option>7</option>
-      <option>8</option><option>9</option><option>10</option>
-      <option value="123">123 (aktueller Rekord)</option>
-    </select>
+    <label for="regler">Record? <span class="stern">*</span></label>
+    <div class="regler-box">
+      <output id="recordAnzeige" for="regler">0</output>
+      <input type="range" id="regler" min="0" max="100" step="1" value="0">
+      <div class="regler-skala"><span>0</span><span>1.000</span><span>∞</span></div>
+    </div>
+    <label for="record" class="klein">oder genau eintippen:</label>
+    <input type="text" id="record" inputmode="decimal" value="0" autocomplete="off">
 
     <label for="alter">Alter <span class="stern">*</span></label>
     <select id="alter" required>
@@ -253,7 +281,27 @@
   <div class="meldung" id="meldung"></div>
 </form>
 
-<footer>GOON SQUAD · seit 2026</footer>
+<section class="formular" id="mod" hidden>
+  <h2 class="mod-titel">MOD-BEREICH</h2>
+
+  <form id="modLogin">
+    <label for="modPasswort">Passwort</label>
+    <input type="password" id="modPasswort" autocomplete="current-password" required>
+    <button type="submit" class="knopf absenden">EINLOGGEN</button>
+  </form>
+
+  <div id="modPanel" hidden>
+    <div class="mod-kopf">
+      <b>Eingeloggt als Mod</b>
+      <button type="button" class="knopf" id="modRaus">Ausloggen</button>
+    </div>
+    <p class="klein">Hier kannst du Einträge ändern oder löschen. Die drei Gründer stehen fest im Code.</p>
+    <div id="modListe"></div>
+  </div>
+  <div class="meldung" id="modMeldung"></div>
+</section>
+
+<footer>GOON SQUAD · seit 2026 · <button type="button" class="mod-link" id="modOeffnen">Mod</button></footer>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
@@ -262,6 +310,47 @@
     "sb_publishable_FC4qksdxFJEASw7N4Vg32Q_gwDFLFDe"
   );
   var SEITEN_LINK = location.href.split("#")[0];
+
+  // >>> Mod-Passwort – hier ändern <<<
+  var MOD_PASSWORT = "goonsquad";
+
+  // ---------- Record-Regler: 0 bis ∞ ----------
+  // Position 0–99 wächst logarithmisch bis 1.000.000, ganz rechts (100) = ∞
+  var regler = document.getElementById("regler");
+  var recordFeld = document.getElementById("record");
+  var recordAnzeige = document.getElementById("recordAnzeige");
+  var recordWert = 0;
+
+  function zahlText(v) {
+    if (v === Infinity) return "∞";
+    return v.toLocaleString("de-AT");
+  }
+  function ausRegler(p) {
+    if (p >= 100) return Infinity;
+    return Math.round(Math.pow(10, p * 6 / 99)) - 1;
+  }
+  function zuRegler(v) {
+    if (v === Infinity) return 100;
+    return Math.min(99, Math.round(Math.log10(v + 1) * 99 / 6));
+  }
+  regler.addEventListener("input", function () {
+    recordWert = ausRegler(Number(regler.value));
+    recordAnzeige.textContent = zahlText(recordWert);
+    recordFeld.value = recordWert === Infinity ? "∞" : String(recordWert);
+  });
+  recordFeld.addEventListener("input", function () {
+    var t = recordFeld.value.trim().toLowerCase();
+    var v;
+    if (t === "∞" || t === "unendlich" || t === "inf") v = Infinity;
+    else v = Number(t.replace(",", "."));
+    if (isNaN(v) || v < 0) return;
+    recordWert = v;
+    recordAnzeige.textContent = zahlText(v);
+    regler.value = zuRegler(v);
+  });
+  // ∞ wird in der Datenbank als -1 gespeichert
+  function rausAusDb(r) { r = Number(r); return r < 0 ? Infinity : r; }
+  function reinInDb(v) { return v === Infinity ? -1 : v; }
 
   // Die Gründer – immer dabei
   var gruender = [
@@ -328,7 +417,7 @@
     var r = document.createElement("div");
     r.className = "record";
     r.innerHTML = "<span>Record</span><strong></strong>";
-    r.querySelector("strong").textContent = String(s.record).replace(".", ",");
+    r.querySelector("strong").textContent = zahlText(s.record);
     info.appendChild(r);
 
     el.appendChild(info);
@@ -337,7 +426,10 @@
 
   function zeigen() {
     var alle = gruender.concat(neue);
-    alle.sort(function (a, b) { return b.record - a.record; });
+    alle.sort(function (a, b) {
+      if (a.record === b.record) return 0;
+      return a.record > b.record ? -1 : 1;
+    });
     var box = document.getElementById("karten");
     box.innerHTML = "";
     alle.forEach(function (s, i) { box.appendChild(karte(s, i + 1)); });
@@ -347,10 +439,11 @@
     var res = await supa.from("spieler").select("*").order("erstellt");
     if (res.error) return;
     neue = res.data.map(function (x) {
-      return { neu: true, name: x.name, record: Number(x.record), alter: x.alter_,
+      return { neu: true, id: x.id, name: x.name, record: rausAusDb(x.record), alter: x.alter_,
                motivation: x.motivation, foto: x.foto_url };
     });
     zeigen();
+    if (modDrin) modZeigen();
   }
 
   // ---------- Foto verkleinern ----------
@@ -399,7 +492,7 @@
 
       var eintrag = await supa.from("spieler").insert({
         name: document.getElementById("name").value.trim().toUpperCase(),
-        record: Number(document.getElementById("record").value),
+        record: reinInDb(recordWert),
         alter_: document.getElementById("alter").value,
         motivation: document.getElementById("motivation").value.trim() || null,
         foto_url: url
@@ -408,6 +501,7 @@
 
       form.reset();
       fotoBlob = null;
+      recordWert = 0; recordAnzeige.textContent = "0";
       document.getElementById("vorschau").hidden = true;
       meldung.textContent = "Willkommen im GOON SQUAD! Deine Karte ist jetzt oben bei den Spielern.";
       await laden();
@@ -417,6 +511,120 @@
     }
     knopf.disabled = false;
   });
+
+  // ---------- Mod-Bereich ----------
+  var modDrin = false;
+  var modLoeschFrage = null;
+
+  document.getElementById("modOeffnen").addEventListener("click", function () {
+    var m = document.getElementById("mod");
+    m.hidden = !m.hidden;
+    if (!m.hidden) m.scrollIntoView({ behavior: "smooth" });
+  });
+
+  document.getElementById("modLogin").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var feld = document.getElementById("modPasswort");
+    if (feld.value === MOD_PASSWORT) {
+      modDrin = true;
+      feld.value = "";
+      document.getElementById("modLogin").hidden = true;
+      document.getElementById("modPanel").hidden = false;
+      document.getElementById("modMeldung").textContent = "";
+      modZeigen();
+    } else {
+      document.getElementById("modMeldung").textContent = "Falsches Passwort.";
+    }
+  });
+
+  document.getElementById("modRaus").addEventListener("click", function () {
+    modDrin = false;
+    document.getElementById("modLogin").hidden = false;
+    document.getElementById("modPanel").hidden = true;
+  });
+
+  function feld(wert, platzhalter) {
+    var i = document.createElement("input");
+    i.type = "text"; i.value = wert == null ? "" : wert; i.placeholder = platzhalter;
+    i.setAttribute("aria-label", platzhalter);
+    return i;
+  }
+
+  function modZeigen() {
+    var liste = document.getElementById("modListe");
+    liste.innerHTML = "";
+    if (neue.length === 0) {
+      liste.innerHTML = '<p class="klein">Noch keine Anmeldungen.</p>';
+      return;
+    }
+    neue.forEach(function (s) {
+      var z = document.createElement("div");
+      z.className = "mod-zeile";
+
+      var img = document.createElement("img");
+      img.src = s.foto; img.alt = s.name;
+      z.appendChild(img);
+
+      var f = document.createElement("div");
+      f.className = "mod-felder";
+      var fName = feld(s.name, "Name");
+      var fRecord = feld(s.record === Infinity ? "∞" : s.record, "Record (∞ für unendlich)");
+      var fAlter = feld(s.alter, "Alter");
+      var fMot = feld(s.motivation, "Motivation");
+      f.appendChild(fName); f.appendChild(fRecord); f.appendChild(fAlter); f.appendChild(fMot);
+      z.appendChild(f);
+
+      var k = document.createElement("div");
+      k.className = "mod-knoepfe";
+
+      var speichern = document.createElement("button");
+      speichern.type = "button"; speichern.textContent = "Speichern";
+      speichern.onclick = async function () {
+        var t = fRecord.value.trim();
+        var rec = (t === "∞" || t.toLowerCase() === "unendlich") ? Infinity : Number(t.replace(",", "."));
+        if (isNaN(rec) || rec < 0) { modMeldung("Record muss eine Zahl oder ∞ sein."); return; }
+        var res = await supa.from("spieler").update({
+          name: fName.value.trim().toUpperCase(),
+          record: reinInDb(rec),
+          alter_: fAlter.value.trim(),
+          motivation: fMot.value.trim() || null
+        }).eq("id", s.id).select();
+        if (res.error || !res.data.length) modMeldung("Speichern hat nicht geklappt.");
+        else { modMeldung("Gespeichert."); laden(); }
+      };
+      k.appendChild(speichern);
+
+      if (modLoeschFrage === s.id) {
+        var frage = document.createElement("span");
+        frage.textContent = "Wirklich löschen?";
+        var ja = document.createElement("button");
+        ja.type = "button"; ja.className = "rot"; ja.textContent = "Ja, löschen";
+        ja.onclick = async function () {
+          modLoeschFrage = null;
+          var res = await supa.from("spieler").delete().eq("id", s.id).select();
+          if (res.error || !res.data.length) { modMeldung("Löschen hat nicht geklappt."); return; }
+          var pfad = s.foto.split("/fotos/")[1];
+          if (pfad) await supa.storage.from("fotos").remove([pfad]);
+          modMeldung("Gelöscht.");
+          laden();
+        };
+        var nein = document.createElement("button");
+        nein.type = "button"; nein.className = "hell"; nein.textContent = "Abbrechen";
+        nein.onclick = function () { modLoeschFrage = null; modZeigen(); };
+        k.appendChild(frage); k.appendChild(ja); k.appendChild(nein);
+      } else {
+        var weg = document.createElement("button");
+        weg.type = "button"; weg.className = "rot"; weg.textContent = "Löschen";
+        weg.onclick = function () { modLoeschFrage = s.id; modZeigen(); };
+        k.appendChild(weg);
+      }
+
+      z.appendChild(k);
+      liste.appendChild(z);
+    });
+  }
+
+  function modMeldung(t) { document.getElementById("modMeldung").textContent = t; }
 
   zeigen();
   laden();
